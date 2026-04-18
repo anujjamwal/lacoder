@@ -1,0 +1,29 @@
+[package]
+name         = "lapce-agent"
+version      = { workspace = true }
+authors      = { workspace = true }
+edition      = { workspace = true }
+license      = { workspace = true }
+rust-version = { workspace = true }
+
+# Agent runtime: LLM provider trait + tool registry + (later) the agentic
+# loop. Feature-gated so building the IDE doesn't pull network deps unless
+# the user opts in.
+#
+# - default features: trait + StubProvider only. No network. Compiles
+#   anywhere.
+# - "anthropic": adds an Anthropic Messages-API impl (reqwest blocking).
+# - "openai":    adds an OpenAI Chat-Completions impl (reqwest blocking).
+
+[features]
+default = []
+anthropic = ["dep:reqwest"]
+openai    = ["dep:reqwest"]
+
+[dependencies]
+anyhow     = { workspace = true }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+
+reqwest = { workspace = true, optional = true }

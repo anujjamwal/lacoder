@@ -2997,6 +2997,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapce-agent"
+version = "0.4.6"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "lapce-app"
 version = "0.4.6"
 dependencies = [
