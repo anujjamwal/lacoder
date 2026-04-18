@@ -10,12 +10,16 @@ use std::{rc::Rc, sync::Arc};
 
 use floem::{
     View,
-    reactive::{ReadSignal, SignalGet, SignalUpdate, SignalWith},
+    reactive::{
+        ReadSignal, SignalGet, SignalUpdate, SignalWith, create_effect,
+    },
     style::CursorStyle,
     views::{
         Decorators, container, dyn_stack, empty, label, scroll, stack, text,
     },
 };
+use lapce_core::buffer::rope_text::RopeText;
+use lapce_xi_rope::Rope;
 
 use crate::{
     agent::{
@@ -51,12 +55,40 @@ pub fn assistant(window_tab_data: Rc<WindowTabData>) -> impl View {
     let workspace = window_tab_data.workspace.clone();
     let scope = window_tab_data.scope;
 
-    // Real text-input editor for the composer. Lives for the lifetime of this
-    // view build; gets cleaned up when the view is torn down by dyn_container.
+    // Real text-input editors for the composer and plan-doc. Live for the
+    // lifetime of this view build; cleaned up when dyn_container tears it down.
     let composer_editor = window_tab_data
         .main_split
         .editors
         .make_local(scope, window_tab_data.common.clone());
+    let plan_editor = window_tab_data
+        .main_split
+        .editors
+        .make_local(scope, window_tab_data.common.clone());
+
+    // Mirror session.plan into the plan editor as the assistant drafts. The
+    // user can edit freely; their edits stay until the next session.plan
+    // change overwrites them. (Phase 2.2 limit — proper merge / dirty flag
+    // arrives with the real LLM in Phase 2.3.)
+    {
+        let agents = agents.clone();
+        let plan_editor_for_sync = plan_editor.clone();
+        create_effect(move |_| {
+            let Some(session) = resolve(&agents) else {
+                return;
+            };
+            let new_plan = session.plan.get();
+            let current = plan_editor_for_sync
+                .doc()
+                .buffer
+                .with_untracked(|b| b.to_string());
+            if current != new_plan {
+                plan_editor_for_sync
+                    .doc()
+                    .reload(Rope::from(&new_plan), true);
+            }
+        });
+    }
 
     let header = header(window_tab_data.clone(), config);
     let rail = left_rail(agents.clone(), config);
@@ -67,6 +99,7 @@ pub fn assistant(window_tab_data: Rc<WindowTabData>) -> impl View {
         workspace_mode,
         config,
         composer_editor,
+        plan_editor,
     );
 
     let body = stack((rail, center_pane))
@@ -291,6 +324,7 @@ fn center(
     workspace_mode: floem::reactive::RwSignal<WorkspaceMode>,
     config: ConfigSig,
     composer_editor: EditorData,
+    plan_editor: EditorData,
 ) -> impl View {
     let agents_chat = agents.clone();
     let chat_list = dyn_stack(
@@ -316,7 +350,14 @@ fn center(
     });
 
     let agents_plan = agents.clone();
-    let plan_panel = plan_panel(agents_plan, workspace, scope, workspace_mode, config);
+    let plan_panel = plan_panel(
+        agents_plan,
+        workspace,
+        scope,
+        workspace_mode,
+        config,
+        plan_editor,
+    );
 
     let composer = composer(agents.clone(), config, composer_editor);
 
@@ -361,12 +402,15 @@ fn plan_panel(
     scope: floem::reactive::Scope,
     workspace_mode: floem::reactive::RwSignal<WorkspaceMode>,
     config: ConfigSig,
+    plan_editor: EditorData,
 ) -> impl View {
     let agents_state_text = agents.clone();
     let agents_state_style = agents.clone();
-    let agents_plan = agents.clone();
     let agents_handoff_click = agents.clone();
     let agents_handoff_style = agents.clone();
+    let plan_editor_for_handoff = plan_editor.clone();
+    let plan_editor_for_view = plan_editor.clone();
+    let plan_editor_for_locked = plan_editor.clone();
 
     let header_label = label(|| "DRAFT PLAN".to_string()).style(move |s| {
         s.font_size(10.0)
@@ -402,21 +446,29 @@ fn plan_panel(
 
     let handoff_btn = container(text("Launch coder from this plan →"))
         .on_click_stop(move |_| {
+            // At handoff, the editor's buffer is the source of truth — user
+            // edits override anything still pending from the stub.
+            let plan_text = plan_editor_for_handoff
+                .doc()
+                .buffer
+                .with_untracked(|b| b.to_string());
             handoff(
                 &agents_handoff_click,
                 workspace.clone(),
                 scope,
                 workspace_mode,
+                plan_text,
             )
         })
         .style(move |s| {
             let cfg = config.get();
             let locked_or_empty = resolve(&agents_handoff_style)
-                .map(|s| {
-                    s.state.get() == SessionState::Locked
-                        || s.plan.with(String::is_empty)
-                })
-                .unwrap_or(true);
+                .map(|s| s.state.get() == SessionState::Locked)
+                .unwrap_or(true)
+                || plan_editor_for_locked
+                    .doc()
+                    .buffer
+                    .with(|b| b.is_empty());
             s.padding_horiz(12.0)
                 .padding_vert(6.0)
                 .border_radius(6.0)
@@ -433,22 +485,27 @@ fn plan_panel(
     let header_row = stack((header_label, state_label, handoff_btn))
         .style(|s| s.items_center().gap(8.0).width_full().margin_bottom(6.0));
 
-    let plan_text = label(move || {
-        resolve(&agents_plan)
-            .map(|s| s.plan.get())
-            .filter(|p| !p.is_empty())
-            .unwrap_or_else(|| {
-                "Plan will appear here as the assistant drafts it.".to_string()
-            })
-    })
-    .style(move |s| {
-        s.font_size(12.0)
-            .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
-    });
+    let plan_input = TextInputBuilder::new()
+        .build_editor(plan_editor_for_view)
+        .placeholder(|| {
+            "Plan will appear here as the assistant drafts it. Edit before handoff."
+                .to_string()
+        })
+        .style(move |s| {
+            let cfg = config.get();
+            s.font_size(12.0)
+                .min_height(96.0)
+                .padding(8.0)
+                .border(1.0)
+                .border_radius(6.0)
+                .border_color(cfg.color(LapceColor::LAPCE_BORDER))
+                .color(cfg.color(LapceColor::EDITOR_FOREGROUND))
+                .background(cfg.color(LapceColor::EDITOR_BACKGROUND))
+                .width_full()
+        });
 
     container(
-        stack((header_row, plan_text))
-            .style(|s| s.flex_col().width_full()),
+        stack((header_row, plan_input)).style(|s| s.flex_col().width_full()),
     )
     .style(move |s| {
         let cfg = config.get();
@@ -565,15 +622,19 @@ fn handoff(
     workspace: Arc<crate::workspace::LapceWorkspace>,
     scope: floem::reactive::Scope,
     workspace_mode: floem::reactive::RwSignal<WorkspaceMode>,
+    plan: String,
 ) {
     let Some(assistant) = resolve_untracked(agents) else {
         return;
     };
-    let plan = assistant.plan.with_untracked(|p| p.clone());
-    if plan.is_empty() {
+    if plan.trim().is_empty() {
         return;
     }
     let title = assistant.title.with_untracked(|t| t.clone());
+
+    // Persist the (possibly user-edited) plan back to the assistant session
+    // so the snapshot in the locked session reflects what was handed off.
+    assistant.plan.set(plan.clone());
 
     let coder = Rc::new(CoderSession::new_with_parent(
         scope,
