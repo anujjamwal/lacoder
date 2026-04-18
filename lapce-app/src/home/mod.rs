@@ -14,10 +14,12 @@ use floem::{
     views::{Decorators, container, label, stack, text},
 };
 
+use lapce_agent::{StubProvider, ToolRegistry};
+
 use crate::{
     agent::{
+        engine,
         session::{AssistantSession, CoderSession},
-        stub_runner,
     },
     config::{LapceConfig, color::LapceColor},
     mode::WorkspaceMode,
@@ -76,7 +78,7 @@ pub fn home(window_tab_data: Rc<WindowTabData>) -> impl View {
     let stub_agents = agents.clone();
     let launch_stub = action_card(
         "Launch stub coder",
-        "Spin up an in-process stub that animates fake trace + files (Phase 1.0).",
+        "Spin up an in-process coder via lapce-agent (StubProvider + builtin tool registry).",
         config,
         move || {
             let session = Rc::new(CoderSession::new(
@@ -90,7 +92,11 @@ pub fn home(window_tab_data: Rc<WindowTabData>) -> impl View {
             stub_agents.insert_coder(session.clone());
             stub_agents.active_coder.set(Some(id));
             workspace_mode.set(WorkspaceMode::CoderAgent(id));
-            stub_runner::launch(session);
+            engine::launch(
+                Arc::new(StubProvider),
+                Arc::new(ToolRegistry::with_builtins()),
+                session,
+            );
         },
     );
 

@@ -20,9 +20,11 @@ include_dir        = { workspace = true }
 indexmap           = { workspace = true }
 interprocess       = { workspace = true }
 itertools          = { workspace = true }
+lapce-agent        = { workspace = true }
 lapce-core         = { workspace = true }
 lapce-proxy        = { workspace = true }
 lapce-rpc          = { workspace = true }
+lapce-scm          = { workspace = true }
 lapce-xi-rope      = { workspace = true }
 lsp-types          = { workspace = true }
 notify             = { workspace = true }

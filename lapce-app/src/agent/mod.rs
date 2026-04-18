@@ -5,8 +5,10 @@
 //! trace, file changes, and chat. The real out-of-process agent, RPC layer,
 //! and diff view land in follow-ups.
 
+pub mod assistant_engine;
 pub mod assistant_view;
 pub mod coder_view;
+pub mod engine;
 pub mod registry;
 pub mod session;
 pub mod stub_assistant;

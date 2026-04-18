@@ -21,13 +21,15 @@ use floem::{
 use lapce_core::buffer::rope_text::RopeText;
 use lapce_xi_rope::Rope;
 
+use lapce_agent::{StubProvider, ToolRegistry};
+
 use crate::{
     agent::{
+        assistant_engine, engine,
         registry::AgentRegistry,
         session::{
             AssistantSession, ChatRole, ChatTurn, CoderSession, SessionState,
         },
-        stub_assistant, stub_runner,
     },
     config::{LapceConfig, color::LapceColor},
     editor::EditorData,
@@ -562,7 +564,11 @@ fn composer(
                 return;
             }
             editor_for_send.reset();
-            stub_assistant::send_message(session, msg);
+            assistant_engine::send_message(
+                Arc::new(StubProvider),
+                session,
+                msg,
+            );
         })
         .style(move |s| {
             let cfg = config.get();
@@ -651,5 +657,9 @@ fn handoff(
     assistant.spawned_coders.update(|v| v.push(coder_id));
 
     workspace_mode.set(WorkspaceMode::CoderAgent(coder_id));
-    stub_runner::launch(coder);
+    engine::launch(
+        Arc::new(StubProvider),
+        Arc::new(ToolRegistry::with_builtins()),
+        coder,
+    );
 }
