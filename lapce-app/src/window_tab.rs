@@ -76,6 +76,7 @@ use crate::{
     listener::Listener,
     lsp::path_from_url,
     main_split::{MainSplitData, SplitData, SplitDirection, SplitMoveDirection},
+    mode::WorkspaceMode,
     palette::{DEFAULT_RUN_TOML, PaletteData, PaletteStatus, kind::PaletteKind},
     panel::{
         call_hierarchy_view::{CallHierarchyData, CallHierarchyItemData},
@@ -184,6 +185,7 @@ pub struct WindowTabData {
     pub call_hierarchy_data: CallHierarchyData,
     pub about_data: AboutData,
     pub alert_data: AlertBoxData,
+    pub workspace_mode: RwSignal<WorkspaceMode>,
     pub layout_rect: RwSignal<Rect>,
     pub title_height: RwSignal<f64>,
     pub status_height: RwSignal<f64>,
@@ -565,6 +567,7 @@ impl WindowTabData {
             },
             about_data,
             alert_data,
+            workspace_mode: cx.create_rw_signal(WorkspaceMode::default()),
             layout_rect: cx.create_rw_signal(Rect::ZERO),
             title_height,
             status_height,

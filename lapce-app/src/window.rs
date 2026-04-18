@@ -19,6 +19,7 @@ use crate::{
     db::LapceDb,
     keypress::EventRef,
     listener::Listener,
+    mode::AppMode,
     update::ReleaseInfo,
     window_tab::WindowTabData,
     workspace::LapceWorkspace,
@@ -80,6 +81,8 @@ pub struct WindowData {
     pub window_scale: RwSignal<f64>,
     pub config: RwSignal<Arc<LapceConfig>>,
     pub ime_enabled: RwSignal<bool>,
+    /// Gates Launchpad vs. workspace-tab rendering at the window level.
+    pub app_mode: RwSignal<AppMode>,
     pub common: Rc<WindowCommonData>,
 }
 
@@ -127,6 +130,12 @@ impl WindowData {
         });
 
         for w in info.tabs.workspaces {
+            // Skip workspaces with no path — with the Launchpad they have no
+            // reason to exist as a tab. They're the "empty new tab" placeholder
+            // left over from pre-Launchpad state.
+            if w.path.is_none() {
+                continue;
+            }
             let window_tab =
                 Rc::new(WindowTabData::new(cx, Arc::new(w), common.clone()));
             window_tabs.update(|window_tabs| {
@@ -134,16 +143,13 @@ impl WindowData {
             });
         }
 
-        if window_tabs.with_untracked(|window_tabs| window_tabs.is_empty()) {
-            let window_tab = Rc::new(WindowTabData::new(
-                cx,
-                Arc::new(LapceWorkspace::default()),
-                common.clone(),
-            ));
-            window_tabs.update(|window_tabs| {
-                window_tabs.push_back((cx.create_rw_signal(0), window_tab));
-            });
-        }
+        let starts_on_launchpad =
+            window_tabs.with_untracked(|tabs| tabs.is_empty());
+        let app_mode = cx.create_rw_signal(if starts_on_launchpad {
+            AppMode::Launchpad
+        } else {
+            AppMode::Workspace
+        });
 
         let active = cx.create_rw_signal(active);
         let position = cx.create_rw_signal(info.pos);
@@ -160,6 +166,7 @@ impl WindowData {
             app_command,
             config,
             ime_enabled: cx.create_rw_signal(false),
+            app_mode,
             common,
         };
 
@@ -236,7 +243,8 @@ impl WindowData {
                         );
                         old_window_tab.proxy.shutdown();
                     }
-                })
+                });
+                self.app_mode.set(AppMode::Workspace);
             }
             WindowCommand::NewWorkspaceTab { workspace, end } => {
                 let db: Arc<LapceDb> = use_context().unwrap();
@@ -270,6 +278,7 @@ impl WindowData {
                     })
                     .unwrap();
                 self.active.set(active);
+                self.app_mode.set(AppMode::Workspace);
             }
             WindowCommand::CloseWorkspaceTab { index } => {
                 let active = self.active.get_untracked();

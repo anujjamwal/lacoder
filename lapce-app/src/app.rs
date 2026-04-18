@@ -42,7 +42,7 @@ use floem::{
     unit::PxPctAuto,
     views::{
         Decorators, VirtualVector, clip, container, drag_resize_window_area,
-        drag_window_area, dyn_stack,
+        drag_window_area, dyn_container, dyn_stack,
         editor::{core::register::Clipboard, text::SystemClipboard},
         empty, label, rich_text,
         scroll::{PropagatePointerWheel, VerticalScrollAsHorizontal, scroll},
@@ -94,6 +94,7 @@ use crate::{
         SplitContent, SplitData, SplitDirection, SplitMoveDirection, TabCloseKind,
     },
     markdown::MarkdownContent,
+    mode::{AppMode, WorkspaceMode},
     palette::{
         PaletteStatus,
         item::{PaletteItem, PaletteItemContent},
@@ -3304,11 +3305,39 @@ fn window_tab(window_tab_data: Rc<WindowTabData>) -> impl View {
     let window_tab_scope = window_tab_data.scope;
     let hover_active = window_tab_data.common.hover.active;
     let status_height = window_tab_data.status_height;
+    let workspace_mode = window_tab_data.workspace_mode;
+
+    let mode_body = {
+        let window_tab_data = window_tab_data.clone();
+        dyn_container(
+            move || workspace_mode.get(),
+            move |mode| match mode {
+                WorkspaceMode::Home => {
+                    crate::home::home(window_tab_data.clone()).into_any()
+                }
+                WorkspaceMode::Editor => {
+                    workbench(window_tab_data.clone()).into_any()
+                }
+                WorkspaceMode::Assistant(_) => {
+                    crate::agent::assistant_view::assistant(
+                        window_tab_data.clone(),
+                    )
+                    .into_any()
+                }
+                WorkspaceMode::CoderAgent(_) => {
+                    crate::agent::coder_view::coder(window_tab_data.clone())
+                        .into_any()
+                }
+            },
+        )
+        .style(|s| s.size_full().flex_grow(1.0))
+        .debug_name("Workspace Mode Body")
+    };
 
     let view = stack((
         stack((
             title(window_tab_data.clone()),
-            workbench(window_tab_data.clone()),
+            mode_body,
             status(
                 window_tab_data.clone(),
                 source_control,
@@ -3660,16 +3689,31 @@ fn window(window_data: WindowData) -> impl View {
     let key = |(_, window_tab): &(RwSignal<usize>, Rc<WindowTabData>)| {
         window_tab.window_tab_id
     };
-    let active = move || active.get();
+    let active_fn = move || active.get();
     let window_focus = create_rw_signal(false);
     let ime_enabled = window_data.ime_enabled;
     let window_maximized = window_data.common.window_maximized;
+    let app_mode = window_data.app_mode;
+    let launchpad_window_data = window_data.clone();
 
-    tab(active, items, key, |(_, window_tab_data)| {
-        window_tab(window_tab_data)
-    })
+    dyn_container(
+        move || app_mode.get(),
+        move |mode| match mode {
+            AppMode::Launchpad => {
+                crate::launchpad::launchpad(launchpad_window_data.clone())
+                    .into_any()
+            }
+            AppMode::Workspace => tab(
+                active_fn,
+                items,
+                key,
+                |(_, window_tab_data)| window_tab(window_tab_data),
+            )
+            .into_any(),
+        },
+    )
     .window_title(move || {
-        let active = active();
+        let active = active.get();
         let window_tabs = window_tabs.get();
         let workspace = window_tabs
             .get(active)
@@ -3696,7 +3740,7 @@ fn window(window_data: WindowData) -> impl View {
     })
     .window_menu(move || {
         window_focus.track();
-        let active = active();
+        let active = active.get();
         let window_tabs = window_tabs.get();
         let window_tab = window_tabs.get(active).or_else(|| window_tabs.last());
         if let Some((_, window_tab)) = window_tab {
