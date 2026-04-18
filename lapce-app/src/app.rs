@@ -2194,6 +2194,56 @@ fn tooltip_tip<V: View + 'static>(
     })
 }
 
+/// Editor mode = the existing workbench wrapped in a banner reminding the
+/// user that file editing is view-only for now (terminal stays interactive).
+/// Real read-only enforcement at the doc layer arrives in a follow-up.
+fn editor_mode_with_banner(window_tab_data: Rc<WindowTabData>) -> impl View {
+    let config = window_tab_data.common.config;
+    let workspace_mode = window_tab_data.workspace_mode;
+
+    let back = container(text("← Home"))
+        .on_click_stop(move |_| {
+            workspace_mode.set(crate::mode::WorkspaceMode::Home)
+        })
+        .style(move |s| {
+            let cfg = config.get();
+            s.padding_horiz(10.0)
+                .padding_vert(4.0)
+                .border(1.0)
+                .border_radius(6.0)
+                .border_color(cfg.color(LapceColor::LAPCE_BORDER))
+                .color(cfg.color(LapceColor::EDITOR_FOREGROUND))
+                .cursor(CursorStyle::Pointer)
+                .hover(|s| {
+                    s.background(cfg.color(LapceColor::PANEL_HOVERED_BACKGROUND))
+                })
+        });
+
+    let banner_text = label(|| {
+        "View-only editor — files are not editable yet. Terminal is interactive.".to_string()
+    })
+    .style(move |s| {
+        s.font_size(11.0)
+            .color(config.get().color(LapceColor::LAPCE_WARN))
+            .margin_left(12.0)
+    });
+
+    let banner = stack((back, banner_text)).style(move |s| {
+        let cfg = config.get();
+        s.width_full()
+            .height(32.0)
+            .padding_horiz(12.0)
+            .items_center()
+            .border_bottom(1.0)
+            .border_color(cfg.color(LapceColor::LAPCE_BORDER))
+            .background(cfg.color(LapceColor::PANEL_BACKGROUND))
+    });
+
+    stack((banner, workbench(window_tab_data)))
+        .style(|s| s.flex_col().size_full())
+        .debug_name("Editor Mode (view-only)")
+}
+
 fn workbench(window_tab_data: Rc<WindowTabData>) -> impl View {
     let workbench_size = window_tab_data.common.workbench_size;
     let main_split_width = window_tab_data.main_split.width;
@@ -3328,7 +3378,7 @@ fn window_tab(window_tab_data: Rc<WindowTabData>) -> impl View {
                     crate::home::home(window_tab_data.clone()).into_any()
                 }
                 WorkspaceMode::Editor => {
-                    workbench(window_tab_data.clone()).into_any()
+                    editor_mode_with_banner(window_tab_data.clone()).into_any()
                 }
                 WorkspaceMode::Assistant(_) => {
                     crate::agent::assistant_view::assistant(
