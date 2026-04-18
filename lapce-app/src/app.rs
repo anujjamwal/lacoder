@@ -469,10 +469,14 @@ impl AppData {
             self.app_command,
         );
 
-        {
-            let cur_window_tab = window_data.active.get_untracked();
-            let (_, window_tab) =
-                &window_data.window_tabs.get_untracked()[cur_window_tab];
+        // If the window opened on Launchpad (no workspace tabs), there is no
+        // tab to route CLI file arguments into. Skip silently — the user can
+        // open a workspace first and reopen the files.
+        if let Some((_, window_tab)) = {
+            let tabs = window_data.window_tabs.get_untracked();
+            let cur = window_data.active.get_untracked();
+            tabs.get(cur).cloned().or_else(|| tabs.last().cloned())
+        } {
             for file in files {
                 let position = file.linecol.map(|pos| {
                     EditorPosition::Position(lsp_types::Position {
