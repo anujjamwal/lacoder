@@ -15,7 +15,10 @@ use floem::{
 };
 
 use crate::{
-    agent::{session::CoderSession, stub_runner},
+    agent::{
+        session::{AssistantSession, CoderSession},
+        stub_runner,
+    },
     config::{LapceConfig, color::LapceColor},
     mode::WorkspaceMode,
     window_tab::WindowTabData,
@@ -50,11 +53,23 @@ pub fn home(window_tab_data: Rc<WindowTabData>) -> impl View {
         move || workspace_mode.set(WorkspaceMode::Editor),
     );
 
+    let assistant_workspace = workspace.clone();
+    let assistant_agents = agents.clone();
     let new_assistant = action_card(
         "New assistant session",
-        "Plan, research, and hand off to coder agents. (Stub — Phase 2.)",
+        "Plan, research, iterate — then hand off to a coder agent.",
         config,
-        || {},
+        move || {
+            let session = Rc::new(AssistantSession::new(
+                scope,
+                assistant_workspace.clone(),
+                "Refactor parse_config".to_string(),
+            ));
+            let id = session.id;
+            assistant_agents.insert_assistant(session);
+            assistant_agents.active_assistant.set(Some(id));
+            workspace_mode.set(WorkspaceMode::Assistant(id));
+        },
     );
 
     let stub_workspace = workspace.clone();

@@ -5,13 +5,15 @@ use std::rc::Rc;
 use floem::reactive::{RwSignal, Scope, SignalUpdate, SignalWith};
 
 use crate::{
-    agent::session::CoderSession,
+    agent::session::{AssistantSession, CoderSession},
     id::{AssistantSessionId, CoderSessionId},
 };
 
 #[derive(Clone)]
 pub struct AgentRegistry {
     pub coders: RwSignal<im::HashMap<CoderSessionId, Rc<CoderSession>>>,
+    pub assistants:
+        RwSignal<im::HashMap<AssistantSessionId, Rc<AssistantSession>>>,
     pub active_coder: RwSignal<Option<CoderSessionId>>,
     pub active_assistant: RwSignal<Option<AssistantSessionId>>,
 }
@@ -20,6 +22,7 @@ impl AgentRegistry {
     pub fn new(cx: Scope) -> Self {
         Self {
             coders: cx.create_rw_signal(im::HashMap::new()),
+            assistants: cx.create_rw_signal(im::HashMap::new()),
             active_coder: cx.create_rw_signal(None),
             active_assistant: cx.create_rw_signal(None),
         }
@@ -34,5 +37,19 @@ impl AgentRegistry {
 
     pub fn get_coder(&self, id: CoderSessionId) -> Option<Rc<CoderSession>> {
         self.coders.with_untracked(|map| map.get(&id).cloned())
+    }
+
+    pub fn insert_assistant(&self, session: Rc<AssistantSession>) {
+        let id = session.id;
+        self.assistants.update(|map| {
+            map.insert(id, session);
+        });
+    }
+
+    pub fn get_assistant(
+        &self,
+        id: AssistantSessionId,
+    ) -> Option<Rc<AssistantSession>> {
+        self.assistants.with_untracked(|map| map.get(&id).cloned())
     }
 }

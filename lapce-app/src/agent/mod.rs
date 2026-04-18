@@ -9,4 +9,5 @@ pub mod assistant_view;
 pub mod coder_view;
 pub mod registry;
 pub mod session;
+pub mod stub_assistant;
 pub mod stub_runner;

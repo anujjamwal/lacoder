@@ -176,6 +176,47 @@ impl CoderSession {
             created_at_ms: now_ms(),
         }
     }
+
+    pub fn new_with_parent(
+        cx: Scope,
+        parent: AssistantSessionId,
+        workspace: Arc<LapceWorkspace>,
+        title: String,
+        plan: String,
+    ) -> Self {
+        let mut s = Self::new(cx, workspace, title, plan);
+        s.parent = Some(parent);
+        s
+    }
+}
+
+/// A running planning / research session with the AI assistant. Produces a
+/// `plan` string that can be handed off to a coder agent.
+#[derive(Clone)]
+pub struct AssistantSession {
+    pub id: AssistantSessionId,
+    pub workspace: Arc<LapceWorkspace>,
+    pub title: RwSignal<String>,
+    pub state: RwSignal<SessionState>,
+    pub transcript: RwSignal<Vec<ChatTurn>>,
+    pub plan: RwSignal<String>,
+    pub spawned_coders: RwSignal<Vec<CoderSessionId>>,
+    pub created_at_ms: u64,
+}
+
+impl AssistantSession {
+    pub fn new(cx: Scope, workspace: Arc<LapceWorkspace>, title: String) -> Self {
+        Self {
+            id: AssistantSessionId::next(),
+            workspace,
+            title: cx.create_rw_signal(title),
+            state: cx.create_rw_signal(SessionState::Active),
+            transcript: cx.create_rw_signal(Vec::new()),
+            plan: cx.create_rw_signal(String::new()),
+            spawned_coders: cx.create_rw_signal(Vec::new()),
+            created_at_ms: now_ms(),
+        }
+    }
 }
 
 pub fn now_ms() -> u64 {
