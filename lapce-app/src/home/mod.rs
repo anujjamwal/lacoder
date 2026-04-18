@@ -15,6 +15,7 @@ use floem::{
 };
 
 use crate::{
+    agent::{session::CoderSession, stub_runner},
     config::{LapceConfig, color::LapceColor},
     mode::WorkspaceMode,
     window_tab::WindowTabData,
@@ -24,6 +25,8 @@ pub fn home(window_tab_data: Rc<WindowTabData>) -> impl View {
     let config = window_tab_data.common.config;
     let workspace = window_tab_data.workspace.clone();
     let workspace_mode = window_tab_data.workspace_mode;
+    let agents = window_tab_data.agents.clone();
+    let scope = window_tab_data.scope;
 
     let title_text = workspace
         .display()
@@ -50,7 +53,29 @@ pub fn home(window_tab_data: Rc<WindowTabData>) -> impl View {
         || {},
     );
 
-    stack((header, open_editor, new_assistant))
+    let stub_workspace = workspace.clone();
+    let stub_agents = agents.clone();
+    let launch_stub = action_card(
+        "Launch stub coder",
+        "Spin up an in-process stub that animates fake trace + files (Phase 1.0).",
+        config,
+        move || {
+            let session = Rc::new(CoderSession::new(
+                scope,
+                stub_workspace.clone(),
+                "Stub: refactor parse_config".to_string(),
+                "Plan:\n  1. Locate parse_config\n  2. Add AgentConfig struct\n  3. Run cargo check"
+                    .to_string(),
+            ));
+            let id = session.id;
+            stub_agents.insert_coder(session.clone());
+            stub_agents.active_coder.set(Some(id));
+            workspace_mode.set(WorkspaceMode::CoderAgent(id));
+            stub_runner::launch(session);
+        },
+    );
+
+    stack((header, open_editor, new_assistant, launch_stub))
         .style(move |s| {
             s.size_full().flex_col().background(
                 config.get().color(LapceColor::EDITOR_BACKGROUND),

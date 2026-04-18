@@ -53,6 +53,7 @@ use tracing::{Level, debug, error, event};
 
 use crate::{
     about::AboutData,
+    agent::registry::AgentRegistry,
     alert::{AlertBoxData, AlertButton},
     code_action::{CodeActionData, CodeActionStatus},
     command::{
@@ -186,6 +187,7 @@ pub struct WindowTabData {
     pub about_data: AboutData,
     pub alert_data: AlertBoxData,
     pub workspace_mode: RwSignal<WorkspaceMode>,
+    pub agents: AgentRegistry,
     pub layout_rect: RwSignal<Rect>,
     pub title_height: RwSignal<f64>,
     pub status_height: RwSignal<f64>,
@@ -568,6 +570,7 @@ impl WindowTabData {
             about_data,
             alert_data,
             workspace_mode: cx.create_rw_signal(WorkspaceMode::default()),
+            agents: AgentRegistry::new(cx),
             layout_rect: cx.create_rw_signal(Rect::ZERO),
             title_height,
             status_height,

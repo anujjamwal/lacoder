@@ -1,9 +1,12 @@
-//! Agent surfaces — assistant (planning) and coder (running agent) views.
+//! Agent surfaces — assistant (planning) and coder (running agent) views,
+//! plus session data model and runner for coder agents.
 //!
-//! Phase 0 ships placeholder views so `WorkspaceMode::Assistant` and
-//! `WorkspaceMode::CoderAgent` have something to render. Real implementations
-//! (session model, RPC, chat, trace, diff, terminal) arrive in Phase 1 and
-//! Phase 2.
+//! Phase 1.0 (this module set) runs an in-process stub coder that animates
+//! trace, file changes, and chat. The real out-of-process agent, RPC layer,
+//! and diff view land in follow-ups.
 
 pub mod assistant_view;
 pub mod coder_view;
+pub mod registry;
+pub mod session;
+pub mod stub_runner;
