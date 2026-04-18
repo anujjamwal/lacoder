@@ -12,26 +12,32 @@ use crate::agent::session::{
     AssistantSession, ChatRole, ChatTurn, now_ms,
 };
 
-/// A pre-baked conversation scenario the assistant will walk through.
+/// Response scenarios the stub assistant can follow based on user input.
+/// Routing is keyword-based; real routing moves to `LlmProvider` in Phase 2.3.
 #[derive(Clone, Copy)]
-pub enum Scenario {
+enum Scenario {
     RefactorParseConfig,
+    Generic,
+}
+
+fn route(user_text: &str) -> Scenario {
+    let lc = user_text.to_lowercase();
+    if lc.contains("parse_config") || lc.contains("agentconfig") {
+        Scenario::RefactorParseConfig
+    } else {
+        Scenario::Generic
+    }
 }
 
 impl Scenario {
-    fn user_prompt(self) -> &'static str {
-        match self {
-            Scenario::RefactorParseConfig => {
-                "Plan a refactor of parse_config that introduces an AgentConfig struct and keeps the public API stable."
-            }
-        }
-    }
-
     fn initial_reply(self) -> &'static str {
         match self {
             Scenario::RefactorParseConfig => {
                 "Looking at the workspace. I'll scan for parse_config call sites \
                  and map out dependencies before drafting the plan."
+            }
+            Scenario::Generic => {
+                "Drafting a plan from your request. Let me sketch the steps."
             }
         }
     }
@@ -46,6 +52,13 @@ impl Scenario {
                 "  4. Keep the old free function as a thin wrapper for backwards compat\n",
                 "  5. Run cargo check across the workspace\n",
             ],
+            Scenario::Generic => &[
+                "Plan — scoped change\n",
+                "  1. Identify the target files and their dependents\n",
+                "  2. Outline the minimal edit set\n",
+                "  3. Implement and run cargo check\n",
+                "  4. Summarize the diff for review\n",
+            ],
         }
     }
 
@@ -55,17 +68,26 @@ impl Scenario {
                 "Plan drafted. Five steps, no API break. Ready when you are — hit \
                  'Launch coder from this plan' to hand off."
             }
+            Scenario::Generic => {
+                "Plan drafted. Hit 'Launch coder from this plan' to hand off."
+            }
         }
     }
 }
 
-/// User-initiated: push a user turn and animate the assistant's reply.
-pub fn send_message(session: Rc<AssistantSession>, scenario: Scenario) {
-    // User turn appears immediately.
+/// User-initiated: push the user's text as a turn, then animate the canned
+/// assistant reply and plan-building for whichever scenario matches.
+pub fn send_message(session: Rc<AssistantSession>, user_text: String) {
+    let user_text = user_text.trim().to_string();
+    if user_text.is_empty() {
+        return;
+    }
+    let scenario = route(&user_text);
+
     session.transcript.update(|t| {
         t.push(ChatTurn {
             role: ChatRole::User,
-            content: scenario.user_prompt().to_string(),
+            content: user_text,
             timestamp_ms: now_ms(),
         });
     });

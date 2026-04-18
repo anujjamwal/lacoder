@@ -1,10 +1,10 @@
 //! Assistant view — left rail (sessions / notes / background agents),
 //! center chat transcript + plan preview, bottom composer.
 //!
-//! Phase 2.0: composer is a canned "Send stub prompt" button; real text input
-//! arrives in a follow-up. Plan editing is also read-only for now (the stub
-//! assistant populates it). "Launch coder from this plan" snapshots the plan,
-//! creates a CoderSession, locks the assistant session, and switches mode.
+//! Phase 2.1: composer is a real text input. Pressing the Send button reads
+//! the composer buffer, pushes it as a user turn, kicks off the (stubbed)
+//! assistant response, and clears the input. Plan doc is still populated by
+//! the stub — editable plan lands in Phase 2.2.
 
 use std::{rc::Rc, sync::Arc};
 
@@ -23,11 +23,12 @@ use crate::{
         session::{
             AssistantSession, ChatRole, ChatTurn, CoderSession, SessionState,
         },
-        stub_assistant::{self, Scenario},
-        stub_runner,
+        stub_assistant, stub_runner,
     },
     config::{LapceConfig, color::LapceColor},
+    editor::EditorData,
     mode::WorkspaceMode,
+    text_input::TextInputBuilder,
     window_tab::WindowTabData,
 };
 
@@ -50,6 +51,13 @@ pub fn assistant(window_tab_data: Rc<WindowTabData>) -> impl View {
     let workspace = window_tab_data.workspace.clone();
     let scope = window_tab_data.scope;
 
+    // Real text-input editor for the composer. Lives for the lifetime of this
+    // view build; gets cleaned up when the view is torn down by dyn_container.
+    let composer_editor = window_tab_data
+        .main_split
+        .editors
+        .make_local(scope, window_tab_data.common.clone());
+
     let header = header(window_tab_data.clone(), config);
     let rail = left_rail(agents.clone(), config);
     let center_pane = center(
@@ -58,6 +66,7 @@ pub fn assistant(window_tab_data: Rc<WindowTabData>) -> impl View {
         scope,
         workspace_mode,
         config,
+        composer_editor,
     );
 
     let body = stack((rail, center_pane))
@@ -281,6 +290,7 @@ fn center(
     scope: floem::reactive::Scope,
     workspace_mode: floem::reactive::RwSignal<WorkspaceMode>,
     config: ConfigSig,
+    composer_editor: EditorData,
 ) -> impl View {
     let agents_chat = agents.clone();
     let chat_list = dyn_stack(
@@ -308,7 +318,7 @@ fn center(
     let agents_plan = agents.clone();
     let plan_panel = plan_panel(agents_plan, workspace, scope, workspace_mode, config);
 
-    let composer = composer(agents.clone(), config);
+    let composer = composer(agents.clone(), config, composer_editor);
 
     stack((chat_scroll, plan_panel, composer))
         .style(|s| s.flex_col().flex_grow(1.0).height_full().min_width(0.0))
@@ -450,49 +460,65 @@ fn plan_panel(
     })
 }
 
-fn composer(agents: AgentRegistry, config: ConfigSig) -> impl View {
+fn composer(
+    agents: AgentRegistry,
+    config: ConfigSig,
+    editor: EditorData,
+) -> impl View {
     let agents_send = agents.clone();
-    let agents_read = agents.clone();
+    let agents_locked_hint = agents.clone();
 
-    let placeholder = label(|| {
-        "Ask assistant or type '/' for tools..."
-            .to_string()
-    })
-    .style(move |s| {
-        s.color(config.get().color(LapceColor::EDITOR_DIM))
-            .font_size(12.0)
-            .flex_grow(1.0)
-            .min_width(0.0)
-    });
+    let editor_for_input = editor.clone();
+    let editor_for_send = editor.clone();
 
-    let send_btn = container(text("Send stub prompt ↵"))
-        .on_click_stop(move |_| {
-            if let Some(session) = resolve_untracked(&agents_send) {
-                if session.state.get_untracked() == SessionState::Active {
-                    stub_assistant::send_message(
-                        session,
-                        Scenario::RefactorParseConfig,
-                    );
-                }
-            }
+    let input = TextInputBuilder::new()
+        .build_editor(editor_for_input)
+        .placeholder(|| {
+            "Ask assistant or type '/' for tools...".to_string()
         })
         .style(move |s| {
             let cfg = config.get();
-            let enabled = resolve(&agents_read)
-                .map(|s| {
-                    s.state.get() == SessionState::Active
-                        && s.transcript.with(Vec::is_empty)
-                })
-                .unwrap_or(false);
+            s.flex_grow(1.0)
+                .min_width(0.0)
+                .padding_horiz(10.0)
+                .padding_vert(7.0)
+                .border(1.0)
+                .border_radius(6.0)
+                .border_color(cfg.color(LapceColor::LAPCE_BORDER))
+                .color(cfg.color(LapceColor::EDITOR_FOREGROUND))
+                .background(cfg.color(LapceColor::EDITOR_BACKGROUND))
+        });
+
+    let send_btn = container(text("Send ↵"))
+        .on_click_stop(move |_| {
+            let Some(session) = resolve_untracked(&agents_send) else {
+                return;
+            };
+            if session.state.get_untracked() != SessionState::Active {
+                return;
+            }
+            let msg = editor_for_send
+                .doc()
+                .buffer
+                .with_untracked(|b| b.to_string());
+            if msg.trim().is_empty() {
+                return;
+            }
+            editor_for_send.reset();
+            stub_assistant::send_message(session, msg);
+        })
+        .style(move |s| {
+            let cfg = config.get();
             s.padding_horiz(14.0)
                 .padding_vert(7.0)
                 .border_radius(6.0)
                 .font_size(12.0)
                 .font_bold()
-                .background(cfg.color(LapceColor::LAPCE_BUTTON_PRIMARY_BACKGROUND))
+                .background(
+                    cfg.color(LapceColor::LAPCE_BUTTON_PRIMARY_BACKGROUND),
+                )
                 .color(cfg.color(LapceColor::LAPCE_BUTTON_PRIMARY_FOREGROUND))
                 .cursor(CursorStyle::Pointer)
-                .apply_if(!enabled, |s| s.hide())
         });
 
     let locked_hint = label(|| {
@@ -500,7 +526,7 @@ fn composer(agents: AgentRegistry, config: ConfigSig) -> impl View {
     })
     .style(move |s| {
         let cfg = config.get();
-        let locked = resolve(&agents)
+        let locked = resolve(&agents_locked_hint)
             .map(|s| s.state.get() == SessionState::Locked)
             .unwrap_or(false);
         s.font_size(11.0)
@@ -508,9 +534,21 @@ fn composer(agents: AgentRegistry, config: ConfigSig) -> impl View {
             .apply_if(!locked, |s| s.hide())
     });
 
+    let input_row = stack((input, send_btn))
+        .style(move |s| {
+            let cfg = config.get();
+            let locked = resolve(&agents)
+                .map(|s| s.state.get() == SessionState::Locked)
+                .unwrap_or(false);
+            s.items_center()
+                .gap(10.0)
+                .width_full()
+                .apply_if(locked, |s| s.hide())
+                .color(cfg.color(LapceColor::EDITOR_FOREGROUND))
+        });
+
     container(
-        stack((placeholder, send_btn, locked_hint))
-            .style(|s| s.items_center().gap(10.0).width_full()),
+        stack((input_row, locked_hint)).style(|s| s.flex_col().width_full()),
     )
     .style(move |s| {
         let cfg = config.get();
