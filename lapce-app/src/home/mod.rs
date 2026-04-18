@@ -33,7 +33,11 @@ pub fn home(window_tab_data: Rc<WindowTabData>) -> impl View {
         .unwrap_or_else(|| "Workspace".to_string());
 
     let header = stack((
-        text(title_text).style(|s| s.font_size(24.0).font_bold()),
+        text(title_text).style(move |s| {
+            s.font_size(24.0)
+                .font_bold()
+                .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+        }),
         label(|| "Workspace Home".to_string())
             .style(move |s| s.color(config.get().color(LapceColor::EDITOR_DIM))),
     ))
@@ -92,7 +96,10 @@ fn action_card(
 ) -> impl View {
     container(
         stack((
-            text(title_str).style(|s| s.font_bold()),
+            text(title_str).style(move |s| {
+                s.font_bold()
+                    .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+            }),
             label(move || subtitle_str.to_string()).style(move |s| {
                 s.color(config.get().color(LapceColor::EDITOR_DIM))
                     .font_size(12.0)
@@ -109,6 +116,7 @@ fn action_card(
             .border(1.0)
             .border_radius(8.0)
             .border_color(cfg.color(LapceColor::LAPCE_BORDER))
+            .background(cfg.color(LapceColor::PANEL_BACKGROUND))
             .cursor(CursorStyle::Pointer)
             .hover(|s| {
                 s.background(cfg.color(LapceColor::PANEL_HOVERED_BACKGROUND))

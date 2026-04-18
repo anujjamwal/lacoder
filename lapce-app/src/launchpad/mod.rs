@@ -1,181 +1,169 @@
-//! Launchpad — the screen shown when no workspace is bound to the window.
+//! Launchpad — screen shown when no workspace is bound to the window.
 //!
-//! Phase 0 scope: list recent workspaces as clickable rows and an "Open folder…"
-//! action that delegates to the existing folder-picker flow. The richer card UI
-//! (agent counts, pipeline badges, top nav) lands in later phases.
+//! Assembles the top navigation, tab strip, responsive card grid, and footer
+//! to match `docs/designs/launchpad.png` at the structural level. Status
+//! badges, agent counts, and branch info are stubbed (Phase 0 has no real
+//! sources for these); they will wire up in Phase 3 (SCM backend) and
+//! Phase 6 (multi-agent UX).
 
-use std::{rc::Rc, sync::Arc};
+pub mod footer;
+pub mod tab_strip;
+pub mod top_nav;
+pub mod workspace_card;
+
+use std::sync::Arc;
 
 use floem::{
-    View,
-    action::open_file,
-    file::FileDialogOptions,
-    reactive::{RwSignal, SignalGet, use_context},
-    style::CursorStyle,
-    views::{
-        Decorators, container, dyn_stack, empty, label, scroll, stack, text,
-    },
+    IntoView, View,
+    reactive::{RwSignal, SignalGet, create_rw_signal, use_context},
+    style::FlexWrap,
+    views::{Decorators, dyn_stack, empty, label, scroll, stack, text},
 };
 
 use crate::{
-    command::WindowCommand,
     config::{LapceConfig, color::LapceColor},
     db::LapceDb,
-    listener::Listener,
     window::WindowData,
-    workspace::{LapceWorkspace, LapceWorkspaceType},
+    workspace::LapceWorkspace,
+};
+
+use self::{
+    footer::footer,
+    tab_strip::{WorkspaceFilter, tab_strip},
+    top_nav::{LaunchpadTab, top_nav},
+    workspace_card::{
+        CardStatus, WorkspaceCard, launch_new_card, workspace_card,
+    },
 };
 
 pub fn launchpad(window_data: WindowData) -> impl View {
     let config = window_data.config;
     let window_command = window_data.common.window_command;
 
+    let active_tab = create_rw_signal(LaunchpadTab::Workspaces);
+    let filter = create_rw_signal(WorkspaceFilter::Active);
+
     let db: Arc<LapceDb> = use_context().unwrap();
-    let recent = Rc::new(db.recent_workspaces().unwrap_or_default());
+    let recent = db.recent_workspaces().unwrap_or_default();
 
-    let header = stack((
-        text("Lacoder").style(|s| s.font_size(28.0).font_bold()),
-        label(|| "Agentic coding workspace".to_string())
-            .style(move |s| s.color(config.get().color(LapceColor::EDITOR_DIM))),
-    ))
-    .style(|s| s.flex_col().padding(24.0).gap(4.0));
+    let page_header = page_header(config);
+    let grid = card_grid(recent, window_command, config);
 
-    let launch_new_cmd = window_command;
-    let launch_new = container(
-        stack((
-            text("+ Launch new instance").style(|s| s.font_bold()),
-            label(|| "Open a folder as a new workspace".to_string())
-                .style(move |s| {
-                    s.color(config.get().color(LapceColor::EDITOR_DIM))
-                        .font_size(12.0)
-                }),
-        ))
-        .style(|s| s.flex_col().gap(4.0)),
-    )
-    .on_click_stop(move |_| {
-        let options = FileDialogOptions::new()
-            .title("Choose a folder")
-            .select_directories();
-        open_file(options, move |file| {
-            let Some(mut file) = file else {
-                return;
-            };
-            let Some(path) = file.path.pop() else {
-                return;
-            };
-            let workspace = LapceWorkspace {
-                kind: LapceWorkspaceType::Local,
-                path: Some(path),
-                last_open: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0),
-            };
-            launch_new_cmd.send(WindowCommand::SetWorkspace { workspace });
-        });
-    })
-    .style(move |s| {
-        let cfg = config.get();
-        s.padding(16.0)
-            .margin_horiz(24.0)
-            .margin_bottom(12.0)
-            .border(1.0)
-            .border_radius(8.0)
-            .border_color(cfg.color(LapceColor::LAPCE_BORDER))
-            .cursor(CursorStyle::Pointer)
-            .hover(|s| {
-                s.background(cfg.color(LapceColor::PANEL_HOVERED_BACKGROUND))
-            })
-    });
-
-    let recent_header = label(|| "Recent workspaces".to_string()).style(move |s| {
-        s.margin_horiz(24.0)
-            .margin_bottom(8.0)
-            .color(config.get().color(LapceColor::EDITOR_DIM))
-            .font_size(12.0)
-    });
-
-    let recent_for_list = recent.clone();
-    let recent_list = dyn_stack(
-        move || {
-            recent_for_list
-                .iter()
-                .cloned()
-                .enumerate()
-                .collect::<Vec<_>>()
-        },
-        |(i, _)| *i,
-        move |(_, workspace)| workspace_row(workspace, window_command, config),
-    )
-    .style(|s| s.flex_col());
-
-    let recent_empty = empty().style(move |s| {
-        s.apply_if(!recent.is_empty(), |s| s.hide()).padding(24.0)
-    });
-
-    scroll(
-        stack((header, launch_new, recent_header, recent_list, recent_empty))
-            .style(|s| s.flex_col().width_full()),
+    let body = scroll(
+        stack((page_header, tab_strip(config, filter), grid))
+            .style(move |s| {
+                s.flex_col().width_full().background(
+                    config.get().color(LapceColor::EDITOR_BACKGROUND),
+                )
+            }),
     )
     .style(move |s| {
-        s.size_full()
+        s.width_full()
+            .flex_grow(1.0)
+            .min_height(0.0)
             .background(config.get().color(LapceColor::EDITOR_BACKGROUND))
-    })
-    .debug_name("Launchpad")
+    });
+
+    stack((top_nav(config, active_tab), body, footer(config)))
+        .style(move |s| {
+            s.size_full()
+                .flex_col()
+                .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+                .background(config.get().color(LapceColor::EDITOR_BACKGROUND))
+        })
+        .debug_name("Launchpad")
 }
 
-fn workspace_row(
-    workspace: LapceWorkspace,
-    window_command: Listener<WindowCommand>,
+fn page_header(config: RwSignal<Arc<LapceConfig>>) -> impl View {
+    stack((
+        text("Workspaces").style(move |s| {
+            s.font_size(24.0)
+                .font_bold()
+                .color(config.get().color(LapceColor::EDITOR_FOREGROUND))
+        }),
+        label(|| {
+            "Manage your active development environments and AI agents."
+                .to_string()
+        })
+        .style(move |s| {
+            s.font_size(13.0)
+                .color(config.get().color(LapceColor::EDITOR_DIM))
+                .margin_top(6.0)
+        }),
+    ))
+    .style(|s| s.flex_col().padding_horiz(24.0).padding_vert(24.0))
+}
+
+fn card_grid(
+    recent: Vec<LapceWorkspace>,
+    window_command: crate::listener::Listener<crate::command::WindowCommand>,
     config: RwSignal<Arc<LapceConfig>>,
 ) -> impl View {
-    let title = workspace
-        .display()
-        .unwrap_or_else(|| "Untitled workspace".to_string());
-    let subtitle = workspace
-        .path
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .unwrap_or("")
-        .to_string();
-    let kind_label = match &workspace.kind {
-        LapceWorkspaceType::Local => "Local".to_string(),
-        LapceWorkspaceType::RemoteSSH(host) => format!("SSH • {host}"),
-        #[cfg(windows)]
-        LapceWorkspaceType::RemoteWSL(host) => format!("WSL • {host}"),
-    };
+    // Index 0 is the "Launch new instance" card; indices 1.. are workspaces.
+    // We render all items via a single dyn_stack so flex-wrap just works.
+    let cards: Vec<(usize, Option<WorkspaceCard>)> =
+        std::iter::once((0usize, None::<WorkspaceCard>))
+            .chain(recent.into_iter().enumerate().map(|(i, ws)| {
+                (i + 1, Some(workspace_card_for(ws)))
+            }))
+            .collect();
 
-    let click_ws = workspace.clone();
-    container(
-        stack((
-            text(title).style(|s| s.font_bold()),
-            label(move || subtitle.clone()).style(move |s| {
-                s.color(config.get().color(LapceColor::EDITOR_DIM))
-                    .font_size(12.0)
-            }),
-            label(move || kind_label.clone()).style(move |s| {
-                s.color(config.get().color(LapceColor::EDITOR_DIM))
-                    .font_size(11.0)
-            }),
-        ))
-        .style(|s| s.flex_col().gap(2.0)),
+    let cards = std::rc::Rc::new(cards);
+    let cards_for_key = cards.clone();
+
+    dyn_stack(
+        move || cards.as_ref().clone(),
+        move |(i, _)| *i,
+        move |(_, card)| match card {
+            Some(c) => workspace_card(c, window_command, config).into_any(),
+            None => launch_new_card(window_command, config).into_any(),
+        },
     )
-    .on_click_stop(move |_| {
-        window_command.send(WindowCommand::SetWorkspace {
-            workspace: click_ws.clone(),
-        });
-    })
     .style(move |s| {
-        let cfg = config.get();
-        s.padding(14.0)
-            .margin_horiz(24.0)
-            .margin_bottom(8.0)
-            .border(1.0)
-            .border_radius(6.0)
-            .border_color(cfg.color(LapceColor::LAPCE_BORDER))
-            .cursor(CursorStyle::Pointer)
-            .hover(|s| {
-                s.background(cfg.color(LapceColor::PANEL_HOVERED_BACKGROUND))
-            })
+        let has_any = cards_for_key.as_ref().iter().any(|(_, c)| c.is_some());
+        s.width_full()
+            .flex_wrap(FlexWrap::Wrap)
+            .gap(16.0)
+            .padding_horiz(24.0)
+            .padding_bottom(24.0)
+            .padding_top(16.0)
+            .apply_if(!has_any, |s| s) // keep placeholder hint for future
     })
+    .debug_name("Launchpad Card Grid")
+}
+
+fn workspace_card_for(ws: LapceWorkspace) -> WorkspaceCard {
+    let accessed = accessed_label_for(ws.last_open);
+    WorkspaceCard {
+        workspace: ws,
+        branch: None,
+        agent_count: 0,
+        pending_files: 0,
+        accessed_label: accessed,
+        status: CardStatus::Inactive,
+    }
+}
+
+fn accessed_label_for(last_open_secs: u64) -> String {
+    if last_open_secs == 0 {
+        return "—".to_string();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(last_open_secs);
+    let delta = now.saturating_sub(last_open_secs);
+    match delta {
+        0..=59 => "just now".to_string(),
+        60..=3599 => format!("{}m ago", delta / 60),
+        3600..=86399 => format!("{}h ago", delta / 3600),
+        _ => format!("{}d ago", delta / 86400),
+    }
+}
+
+// Silence dead-code warning: `empty` is re-exported but kept available for
+// future use (filter-empty state).
+#[allow(dead_code)]
+fn _keep_empty_import() -> impl View {
+    empty()
 }

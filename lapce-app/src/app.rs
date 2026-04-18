@@ -344,17 +344,25 @@ impl AppData {
                 #[cfg(not(windows))]
                 let workspace_type = LapceWorkspaceType::Local;
 
+                let workspace = LapceWorkspace {
+                    kind: workspace_type,
+                    path: Some(dir.path.to_owned()),
+                    last_open: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
+                };
+                if let Err(err) = db.update_recent_workspace(&workspace) {
+                    tracing::error!("update_recent_workspace: {err:?}");
+                }
+
                 let info = WindowInfo {
                     size,
                     pos,
                     maximised: false,
                     tabs: TabsInfo {
                         active_tab: 0,
-                        workspaces: vec![LapceWorkspace {
-                            kind: workspace_type,
-                            path: Some(dir.path.to_owned()),
-                            last_open: 0,
-                        }],
+                        workspaces: vec![workspace],
                     },
                 };
 
