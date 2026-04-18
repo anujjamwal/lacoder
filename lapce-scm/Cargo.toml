@@ -1,0 +1,21 @@
+[package]
+name         = "lapce-scm"
+version      = { workspace = true }
+authors      = { workspace = true }
+edition      = { workspace = true }
+license      = { workspace = true }
+rust-version = { workspace = true }
+
+# Source-control backend abstraction for Lacoder. Backends:
+# - GitHub (default): git2 + octocrab. CL == GitHub Pull Request.
+# - Piper (stub): trait-honest placeholder for internal monorepo CLIs.
+# - Sapling (future): shells out to `sl` / `hg`.
+
+[dependencies]
+anyhow    = { workspace = true }
+serde     = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+url       = { workspace = true }
+
+# git2 already vendored at workspace level for the Lapce VCS panel; reuse it.
+git2 = { workspace = true }

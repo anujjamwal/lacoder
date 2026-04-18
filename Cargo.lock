@@ -3155,6 +3155,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapce-scm"
+version = "0.4.6"
+dependencies = [
+ "anyhow",
+ "git2",
+ "serde",
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "lapce-xi-rope"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
